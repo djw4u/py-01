@@ -1,23 +1,24 @@
-{{define "content"}}
+{% extends "layout.html" %}
+{% block content %}
 <h1>Galerie</h1>
 <p class="filter">Filter:
-  <a href="/galerie"{{if eq .FilterID 0}} class="active"{{end}}>Alle</a>
-  {{range .Variants}}
-  <a href="/galerie?variant={{.ID}}"{{if eq .ID $.FilterID}} class="active"{{end}}>{{.Name}}</a>
-  {{end}}
+  <a href="/galerie"{% if filter_id == 0 %} class="active"{% endif %}>Alle</a>
+  {% for v in variants %}
+  <a href="/galerie?variant={{ v.id }}"{% if v.id == filter_id %} class="active"{% endif %}>{{ v.name }}</a>
+  {% endfor %}
 </p>
-{{if .Images}}
+{% if images %}
 <ul class="grid">
-  {{range .Images}}
+  {% for img in images %}
   <li>
-    <a href="/bilder/{{.ID}}.svg" target="_blank" rel="noopener">
-      <img src="/bilder/{{.ID}}.svg" alt="Bild {{.ID}}">
-      <span>{{.VariantName}} · {{.Created}}</span>
+    <a href="/bilder/{{ img.id }}.svg" target="_blank" rel="noopener">
+      <img src="/bilder/{{ img.id }}.svg" alt="Bild {{ img.id }}">
+      <span>{{ img.variant_name }} · {{ img.created }}</span>
     </a>
   </li>
-  {{end}}
+  {% endfor %}
 </ul>
-{{else}}
+{% else %}
 <p class="hint">Keine gespeicherten Bilder.</p>
-{{end}}
-{{end}}
+{% endif %}
+{% endblock %}
