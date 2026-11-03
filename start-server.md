@@ -1,45 +1,41 @@
-# go-02: Server starten und weiterentwickeln
+# py-01: Server starten und weiterentwickeln
 
-Lokale Web-App, die aus JSON-Parametern SVG-Bilder mit geometrischen Figuren erzeugt. Varianten und gespeicherte Bilder liegen in SQLite. Die App läuft auf <http://127.0.0.1:8080>.
+Lokale Web-App (Python-Portierung von go-02), die aus JSON-Parametern SVG-Bilder mit geometrischen Figuren erzeugt. Varianten und gespeicherte Bilder liegen in SQLite. Die App läuft auf <http://127.0.0.1:8080>.
 
 ## Starten
 
-Die Datenbank liegt standardmäßig als `go-02.db` im Arbeitsverzeichnis, also im Projektordner. Die `.gitignore` ignoriert `*.db` nicht: die Datei nicht committen.
+Die Datenbank liegt standardmäßig als `py-01.db` im Arbeitsverzeichnis, also im Projektordner. Die `.gitignore` ignoriert `*.db`. Einmalig `uv sync` ausführen, das legt `.venv/` mit allen Abhängigkeiten an.
 
 ```bash
-cd ~/code/go-02
-go run ./cmd/go-02
+cd ~/code/py-01
+uv run py-01
 ```
 
 Die Datenbank und ihr Schema legt die App beim ersten Start selbst an. Beenden mit `Ctrl+C` (geordnetes Herunterfahren).
 
-Schnellerer Start ohne Übersetzen bei jedem Aufruf:
+Die Datenbank von go-02 lässt sich direkt weiterverwenden, das Schema ist identisch:
 
 ```bash
-cd ~/code/go-02
-go build -o bin/go-02 ./cmd/go-02
-./bin/go-02
+uv run py-01 -db ~/code/go-02/go-02.db
 ```
 
 | Flag    | Standard         | Bedeutung                 |
 |---------|------------------|---------------------------|
-| `-db`   | `go-02.db`       | Pfad der SQLite-Datenbank |
+| `-db`   | `py-01.db`       | Pfad der SQLite-Datenbank |
 | `-addr` | `127.0.0.1:8080` | Adresse des HTTP-Servers  |
 
 Ist der Port belegt, mit `-addr 127.0.0.1:8081` einen anderen wählen.
 
 ## Parameter importieren
 
-Der Import ist **keine App-Funktion**, sondern ein SQL-Skript. Die App muss einmal gestartet worden sein (Schema). Die JSON-Dateien liegen in `~/go-02-daten/params/`:
+Der Import ist **keine App-Funktion**, sondern ein SQL-Skript. Die App muss einmal gestartet worden sein (Schema). Die JSON-Dateien liegen in einem Ordner `params/`; der Befehl läuft in dessen Elternordner:
 
 ```bash
-cd ~/go-02-daten
-sqlite3 ~/code/go-02/go-02.db < ~/code/go-02/scripts/import_params.sql
+cd <Ordner mit params/>
+sqlite3 ~/code/py-01/py-01.db < ~/code/py-01/scripts/import_params.sql
 ```
 
 Bereits importierte Dateien (gleicher Pfad in `source_file`) und ungültiges JSON werden übersprungen. Danach die Seite neu laden.
-
-Beispieldateien in `~/go-02-daten/params/`: `beispiel.json` (RANDOM, 32 Figuren), `raster.json` (GRID 6×6), `poisson.json` (PDS). `raster` und `poisson` habe ich selbst geschrieben, `beispiel` stammt aus einer älteren Variante.
 
 ## Bedienung
 
@@ -52,20 +48,21 @@ Beispieldateien in `~/go-02-daten/params/`: `beispiel.json` (RANDOM, 32 Figuren)
 
 ## Stand
 
-Die erste Version ist fertig und in `main` (PRs #3 bis #6, Stand `f71ace1`). Entwurf: `docs/superpowers/specs/2026-11-01-bildgenerator-design.md` (die Statuszeile dort steht noch auf „Entwurf zur Freigabe“, sie ist freigegeben). Plan: `docs/superpowers/plans/2026-11-01-bildgenerator.md`. Entwurf und Plan enthalten die Begründungen hinter den Entscheidungen.
+py-01 ist eine 1:1-Übersetzung von go-02 (Repo `djw4u/go-02`) nach Python: gleiche Seiten, Routen, Texte, Parameterformat und Datenbankschema. Entwurf der Portierung: `docs/superpowers/specs/2026-11-03-python-port-design.md`, Plan: `docs/superpowers/plans/2026-11-03-python-port.md`. Das fachliche Original-Design von go-02 liegt daneben (`2026-11-01-bildgenerator-*`) und enthält die Begründungen hinter den Entscheidungen.
 
 ## Aufbau
 
 ```
-cmd/go-02/            main: Flags, Verdrahtung, Server mit Timeouts, geordnetes Herunterfahren
-internal/generator/   Parameter -> SVG (ohne HTTP, ohne Datenbank)
-internal/store/       SQLite-Zugriff (modernc.org/sqlite, ohne cgo)
-internal/web/         Handler, Templates (go:embed), static/style.css
+src/py01/__main__.py  Flags, Verdrahtung, Werkzeug-Server, geordnetes Herunterfahren
+src/py01/generator/   Parameter -> SVG (ohne HTTP, ohne Datenbank)
+src/py01/store.py     SQLite-Zugriff (sqlite3 aus der Standardbibliothek)
+src/py01/web/         Flask-App, Jinja2-Templates, static/style.css
+tests/                pytest, gespiegelt nach Paket
 scripts/              import_params.sql
-docs/superpowers/     Entwurf und Plan
+docs/superpowers/     Entwürfe und Pläne
 ```
 
-Abhängigkeitsrichtung: `web` nutzt `generator` und `store`; `generator` kennt weder `web` noch `store`. `web` definiert sein eigenes kleines `Store`-Interface.
+Abhängigkeitsrichtung: `web` nutzt `generator` und `store`; `generator` kennt weder `web` noch `store`. `web` definiert sein eigenes kleines `StoreLike`-Protokoll.
 
 ## Parameterformat
 
@@ -107,17 +104,19 @@ Datei: `{"params": { ... }}`. Die Datenbank speichert die komplette Datei inklus
 
 ## Wichtige Entscheidungen
 
-- **Server rendert die Seiten** (`html/template`), kein JavaScript, keine Frontend-Bibliotheken. Ein JSON-Editor oder `htmx` käme nur bei Bedarf und einzeln begründet dazu.
-- **`modernc.org/sqlite`** statt `mattn/go-sqlite3`: reines Go, kein C-Compiler nötig. `CGO_ENABLED=0 go build ./...` muss laufen.
-- **Zufall nur über `generator.Source`** (ein Interface, `*rand.Rand` aus `math/rand/v2` erfüllt es). Tests nutzen einen festen Seed und sind deshalb wiederholbar. Die App nutzt pro Anfrage eine frisch gesäte Quelle.
+- **Server rendert die Seiten** (Flask mit Jinja2, Autoescaping), kein JavaScript, keine Frontend-Bibliotheken. Ein JSON-Editor oder `htmx` käme nur bei Bedarf und einzeln begründet dazu.
+- **Abhängigkeiten:** zur Laufzeit nur `flask`; `sqlite3` kommt aus der Standardbibliothek, kein ORM.
+- **Zufall nur über `generator.Source`** (ein Protokoll, `random.Random` erfüllt es). Tests nutzen einen festen Seed und sind deshalb wiederholbar. Die App nutzt pro Anfrage eine frisch gesäte Quelle.
 - **Vorschau und Speichern:** Die Vorschau ist ein `<img>` mit `data:`-URI (Skripte laufen dort nicht). Beim Speichern reist das SVG als verstecktes Formularfeld mit. Der Server prüft nur, dass es mit `<svg ` beginnt und höchstens 1 MiB groß ist.
-- **Obergrenzen** gegen Tippfehler: 10000 Figuren, 1000 Ecken, `ri`-Grenzen bis 2^31, Formulare bis 2 MiB, Server-Timeouts.
-- **Eine Datenbankverbindung** (`SetMaxOpenConns(1)`), das vermeidet `SQLITE_BUSY` innerhalb der App.
+- **Obergrenzen** gegen Tippfehler: 10000 Figuren, 1000 Ecken, `ri`-Grenzen bis 2^31, Formulare bis 2 MiB.
+- **Eine Datenbankverbindung** mit einem Lock, das vermeidet `SQLITE_BUSY` innerhalb der App.
+- **Verhalten wie Go:** Zahlen werden wie Gos `math.Round` gerundet, Attributwerte wie `html.EscapeString` maskiert, `true`/`false` gelten nicht als Zahl, `NaN`/`Infinity` im JSON sind ungültig.
 
 ## Bekannte Grenzen (zurückgestellt)
 
 - Bei extremen Breiten wie `1e308` steht `+Inf` im SVG, ohne Fehler.
-- SQLite ohne `busy_timeout` und WAL: Ein Import per `sqlite3` bei laufender App kann auf `SQLITE_BUSY` laufen. Ein `?` oder `#` im Datenbankpfad bricht die Verbindung.
+- SQLite ohne `busy_timeout` und WAL: Ein Import per `sqlite3` bei laufender App kann auf `SQLITE_BUSY` laufen.
+- Der Werkzeug-Server hat keine getrennten Lese- und Schreib-Timeouts wie go-02. Für eine lokale App hingenommen.
 - Die Galerie lädt die vollen SVGs, obwohl sie nur Metadaten braucht.
 - Gespeicherte SVGs sind nicht geprüft und gelten als fremder Inhalt (CSP und `<img>` schützen). In der README fehlt dieser Hinweis.
 - Kein `sandbox` in der CSP der Bilder, kein `Cache-Control` für statische Dateien.
@@ -131,7 +130,7 @@ Datei: `{"params": { ... }}`. Die Datenbank speichert die komplette Datei inklus
 ## Sitzung starten
 
 ```bash
-cd ~/code/go-02
+cd ~/code/py-01
 claude
 ```
 
@@ -150,19 +149,19 @@ Regeln aus `CLAUDE.md`, die Claude beachtet:
 
 - Ein Thema pro Commit.
 - Commit-Nachrichten im Imperativ, kurz und konkret, ohne Präfix.
-- Vor dem Abschluss grün: `go build ./...`, `go vet ./...`, `gofmt -l .` (leer), `golangci-lint run`, `go test ./...`.
+- Vor dem Abschluss grün: `uv run pytest`, `uv run ruff check`, `uv run ruff format --check`, `uv run mypy`.
 - Neue Abhängigkeiten nur nach kurzer Begründung. Vor größeren Änderungen (Struktur, Public API) erst ein Plan.
 - Keine Änderungen an `.env`, Secrets oder CI ohne Rückfrage; kein `git push --force`.
-- Tests sind deterministisch: Zufall und Zeit werden injiziert, keine echten Netzwerkaufrufe, Datenbanken nur in `t.TempDir()`.
+- Tests sind deterministisch: Zufall und Zeit werden injiziert, keine echten Netzwerkaufrufe, Datenbanken nur in `tmp_path`.
 
 Der Test für das Import-Skript braucht `sqlite3` im `PATH` und wird sonst übersprungen. `.superpowers/` (Mockups, Arbeitsdateien) ist in der `.gitignore`.
 
 ## Wo man ansetzt
 
-- **Neue Anordnung:** ein weiterer `case` in `layoutFor` (`internal/generator/layout.go`).
-- **Neue Figurenart:** ein weiterer `case` in `drawFigure` (`internal/generator/figure.go`).
-- **Neue Regel:** ein weiterer `case` in `evalRule` (`internal/generator/rules.go`).
-- **JSON-Schnittstelle für Dritte oder Programme:** Der Generator ist bereits unabhängig von HTTP. Es fehlt nur eine zusätzliche Handler-Schicht neben `internal/web`.
+- **Neue Anordnung:** ein weiterer Eintrag in `_LAYOUTS` (`src/py01/generator/layout.py`).
+- **Neue Figurenart:** ein weiterer Zweig in `draw_figure` (`src/py01/generator/figure.py`).
+- **Neue Regel:** ein weiterer Zweig in `eval_rule` (`src/py01/generator/rules.py`).
+- **JSON-Schnittstelle für Dritte oder Programme:** Der Generator ist bereits unabhängig von HTTP. Es fehlt nur eine zusätzliche Handler-Schicht neben `src/py01/web`.
 - **Mehrere Nutzer und Anmeldung:** Die Web-Schicht ist so geschnitten, dass sich das nachrüsten lässt. Das ist das Ziel im Endausbau, bewusst noch nicht gebaut.
 - **Zurückgestellte Punkte** aus der Liste oben sind kleine, in sich abgeschlossene Aufgaben.
 - **Offene Fragen:** Ob `palette` später die Farbwahl steuern soll, und wie weitere Anordnungen im JSON heißen und welche Felder sie brauchen.
